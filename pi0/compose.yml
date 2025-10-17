@@ -1,0 +1,30 @@
+# Run with:
+# docker compose -f scripts/compose.yml up --build
+services:
+  openpi_gello:
+    image: gello_pi0:latest
+    # build:
+    #   context: ..
+    #   dockerfile: scripts/docker/serve_policy.Dockerfile
+    init: true
+    tty: true
+    network_mode: host
+    command: bash # ← 进入容器就启动 bash 
+    userns_mode: "host"   # 将容器 root 映射到当前用户
+
+    volumes:
+      - $PWD:/app
+    environment:
+      - IS_DOCKER=true
+
+    # Comment out this block if not running on a machine with GPUs.
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              # count: 4
+              capabilities: [ gpu ]
+              # device_ids: [ "0", "2" ] # 挂第 1 号 GPU
+              device_ids: ["0"] # 挂第 1 号 GPU
+              # docker compose -f scripts/docker/compose.yml up -d
