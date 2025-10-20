@@ -1,6 +1,3 @@
-[submodule "pi0/gello_software"]
-	path = pi0/gello_software
-	url = https://github.com/wuphilipp/gello_software.git
 [submodule "pi0/openpi"]
 	path = pi0/openpi
 	url = https://github.com/TRAIL-rcvlab/openpi.git
