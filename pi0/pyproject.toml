@@ -1,0 +1,13 @@
+[project]
+name = "pi0-deploy"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+    "pytest>=8.4.2",
+]
+
+[tool.uv]
+# 使用 Dockerfile 中创建的虚拟环境
+override-dependencies = []
+
+[tool.uv.sources]
