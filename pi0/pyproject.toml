@@ -3,7 +3,8 @@ name = "pi0-deploy"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
-    "pytest>=8.4.2",
+    "numpy<2.0",
+    "pytest>=9.0.2",
 ]
 
 [tool.uv]
@@ -11,3 +12,11 @@ dependencies = [
 override-dependencies = []
 
 [tool.uv.sources]
+openpi = { path = "openpi" }
+gello = { path = "third_party/gello_software_bp" }
+
+[dependency-groups]
+dev = [
+    "gello",
+    "openpi",
+]

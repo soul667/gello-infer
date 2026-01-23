@@ -28,36 +28,6 @@ from gello.zmq_core.robot_node import ZMQClientRobot
 from openpi.policies import rcvlab_policy
 import datetime
 
-# sys.path.append("./openpi")
-# sys.path.append("./third_party/gello_software_bp/gello")
-
-
-# ======== 关键修复 1：提前配置日志（放在所有导入之后，类定义之前） ========
-# 设置无缓冲输出（解决Docker日志不显示问题）
-os.environ["PYTHONUNBUFFERED"] = "1"  # 强制Python不缓冲stdout
-
-# 配置日志格式
-logging.basicConfig(
-    level=logging.INFO,  # 生产环境用INFO，调试时用DEBUG
-    format='%(asctime)s [%(levelname)s] %(message)s',
-    datefmt='%Y-%m-%d %H:%M:%S',
-    stream=sys.stdout,  # 明确指定输出流
-    force=True  # 覆盖任何已有配置
-)
-
-# 创建专用logger（避免根logger被覆盖）
-logger = logging.getLogger("pi0_inference")
-logger.setLevel(logging.INFO)
-
-# 添加文件日志回退（当控制台失效时）
-log_dir = Path("/app/logs")
-log_dir.mkdir(parents=True, exist_ok=True)
-file_handler = logging.FileHandler(
-    log_dir / f"inference_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}.log"
-)
-file_handler.setFormatter(logging.Formatter('%(asctime)s [%(levelname)s] %(message)s'))
-logger.addHandler(file_handler)
-# ======== 关键修复结束 ========
 # 会将observation 以及执行的动作进行录制以便后回放
 @dataclass
 class VLARecorder:
@@ -65,10 +35,10 @@ class VLARecorder:
     video_out_path: str
     frame_size: Tuple[int, int] = (640, 480)  # (width, height)
     fps: int = 30
-    fourcc_str: str = 'MJPG'
+    fourcc_str: str = 'mp4v'
     camera_key: str = 'base'  # observation中图像的键名
     enabled: bool = True
-    _frame_count:int=0
+
     writer: Optional[cv2.VideoWriter] = field(default=None, init=False)
     _video_path: Optional[Path] = field(default=None, init=False)
 
@@ -82,7 +52,7 @@ class VLARecorder:
         
         # 生成带时间戳的视频文件名
         timestamp = datetime.datetime.now().strftime("%Y%m%d_%H%M%S")
-        self._video_path = video_dir / f"episode_{timestamp}.avi"
+        self._video_path = video_dir / f"episode_{timestamp}.mp4"
 
         # 创建视频写入器，若失败则尝试 MJPG/AVI 备用方案
         self.writer = self._create_writer(self.fourcc_str, self._video_path)
@@ -105,32 +75,25 @@ class VLARecorder:
     
     def record_observation(self, observation: dict):
         """从observation中提取并录制图像帧"""
-        # logging.info("NOW IS RECORDING!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!")
         if not self.enabled or self.writer is None:
-            logging.info("RECORDING Error!!!!!!!!!!!!!!")
             return
             
-        # if self.camera_key in observation:
-        logger.info("NORMAL WRITTING")
-        #  = observation['base_rgb'][:,:,[2,1,0]] # BGR to RGB
-        frame = np.asarray(observation['base_rgb'])
-        if frame.dtype != np.uint8:
-            # 若像素值在 [0, 1] 区间，先放大到 [0, 255]
-            max_val = float(frame.max()) if frame.size else 0.0
-            if max_val <= 1.0:
-                frame = (frame * 255.0).clip(0, 255)
-            frame = frame.clip(0, 255).astype(np.uint8)
-        if frame.ndim == 2:
-            frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
-        # # 如果是 RGB，转换为 BGR (OpenCV 格式)
-        if len(frame.shape) == 3 and frame.shape[2] == 3:
-            frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
-            self.write(frame_bgr)
-            logger.info(f"writing frame_bgr")
-        else:
-            self.write(frame)
-            logger.info(f"writing frame")
-
+        if self.camera_key in observation:
+            frame = np.asarray(observation[self.camera_key])
+            if frame.dtype != np.uint8:
+                # 若像素值在 [0, 1] 区间，先放大到 [0, 255]
+                max_val = float(frame.max()) if frame.size else 0.0
+                if max_val <= 1.0:
+                    frame = (frame * 255.0).clip(0, 255)
+                frame = frame.clip(0, 255).astype(np.uint8)
+            if frame.ndim == 2:
+                frame = cv2.cvtColor(frame, cv2.COLOR_GRAY2BGR)
+            # 如果是 RGB，转换为 BGR (OpenCV 格式)
+            if len(frame.shape) == 3 and frame.shape[2] == 3:
+                frame_bgr = cv2.cvtColor(frame, cv2.COLOR_RGB2BGR)
+                self.write(frame_bgr)
+            else:
+                self.write(frame)
     
     def write(self, frame):
         """写入一帧"""
@@ -141,45 +104,16 @@ class VLARecorder:
         if frame.shape[1::-1] != self.frame_size:
             frame = cv2.resize(frame, self.frame_size)
         self.writer.write(frame)
-        self._frame_count+=1
     
     def release(self):
         """释放资源"""
-        # if self.writer is not None:
-        #     self.writer.release()
-        #     self.writer = None
-        try:
-            # 1. 写入几帧黑色结束帧
-            try:
-                end_frame = np.zeros((self.frame_size[1], self.frame_size[0], 3), dtype=np.uint8)
-                for _ in range(5):
-                    self.writer.write(end_frame)
-            except:
-                pass
-            
-            # 2. 释放写入器
+        if self.writer is not None:
             self.writer.release()
-            
-            # 3. 记录结果
-            logging.info(f"✅ 视频保存完成: {self._frame_count}帧")
-            
-            # 4. 验证文件
-            if self._video_path and self._video_path.exists():
-                file_size = self._video_path.stat().st_size
-                if file_size > 1024:  # 大于1KB
-                    logging.info(f"📁 文件大小: {file_size/1024:.1f}KB")
-                else:
-                    logging.warning("⚠️ 文件可能不完整")
-            
-        except Exception as e:
-            logging.warning(f"释放时出现警告: {e}")
-        finally:
             self.writer = None
 
     def _create_writer(self, fourcc_str: str, path: Path) -> Optional[cv2.VideoWriter]:
         fourcc = cv2.VideoWriter_fourcc(*fourcc_str)
-        writer = cv2.VideoWriter(str(path), fourcc, 10, self.frame_size, True)
-        #logger.info(f"writer={writer}")
+        writer = cv2.VideoWriter(str(path), fourcc, float(self.fps), self.frame_size, True)
         if not writer.isOpened():
             writer.release()
             return None
@@ -202,7 +136,7 @@ class Args:
 
     # infer use
     pi_config_name: str = "pi0_rcvlab_low_mem_finetune"   #TODO: change to right config
-    checkpoint_dir: str = "/app/openpi/checkpoints/pi0_rcvlab_low_mem_finetune/my_experiment/20000" 
+    checkpoint_dir: str = "/app/openpi/checkpoints/pi0_rcvlab_low_mem_finetune/my_experiment/25000" 
     prompt: str = "move cup to shelf"
     
     # Utils
@@ -236,7 +170,6 @@ class GelloInferBase:
             logging.info("环境初始化完成2")
         
         self.env = RobotEnv(robot_client, control_rate_hz=args.hz, camera_dict=camera_clients)
-        print(f"self.env={self.env}")
         #print("444")
         
         logging.info("环境初始化完成")
@@ -294,24 +227,21 @@ class Pi0(GelloInferBase):
     policy: _policy.Policy = None
     config: _config.TrainConfig = None
     key: jnp.ndarray = field(default_factory=lambda: jax.random.PRNGKey(0))
+
     def __post_init__(self):
         super().__post_init__()
         args = self.args
 
         self.config = _config.get_config(args.pi_config_name)
-        # print(f"self.config={self.config}")
+        print(f"self.config={self.config}")
         self.policy = _policy_config.create_trained_policy(self.config, args.checkpoint_dir)
-        # print("11111111111")
+        print("11111111111")
     def get_observation(self):
-
-        logging.info("IN PI0 GET OBSERVATION")
         observation = self.env.get_obs()
-        # logging.info("IN PI0 GET OBSERVATION")
-        
         # show observation 的 所有keys
         logging.info(f"Observation keys: {list(observation.keys())}")
         # 录制逻辑完全由 recorder 处理
-        # self.recorder.record_observation(observation)
+        self.recorder.record_observation(observation)
         # 转换obs的key
         observation_output = {}
         # joint_positions = np.asarray(observation['joint_positions'], dtype=np.float32)
@@ -320,10 +250,9 @@ class Pi0(GelloInferBase):
         observation_output['observation/state'] = observation['joint_positions'].astype(np.float32)
         # observation_output['observation/image'] = observation['base_rgb'][:,:,[2,1,0]] # BGR to RGB
         observation_output['observation/image'] = observation['base_rgb'][:,:,[2,1,0]] # BGR to RGB
-        
         observation_output['prompt'] = self.args.prompt
 
-        return observation_output,observation
+        return observation_output
     
 
 @dataclass
@@ -355,16 +284,15 @@ def main(args: Args):
         # test.get_observation()
         
         while True:
-            # print("while11111111111")
-            obs,observation_source = pi0.get_observation()
-            # print("while22222222222")
+            print("while11111111111")
+            obs = pi0.get_observation()
+            print("while22222222222")
             result = pi0.policy.infer(obs)
             # 推理动作
             # logging.info(f"推理动作: {result}")
             # print(f"推理动作: {result}")
 
-            for i in range(1, 10):  # 重复执行动作以确保动作被执行
-                pi0.recorder.record_observation(observation_source)
+            for i in range(2, 4):  # 重复执行动作以确保动作被执行
                 actions = result['actions'][i, :]
                 init_actions = actions.copy()
                 # actions[7] = max(0, actions[7] - 0.2)  # 固定夹爪动作
@@ -373,8 +301,8 @@ def main(args: Args):
                 else:
                     actions[7] = 1
                 # actions[7] = 0.2
-                pi0.env.step(actions) 
-                # print(f"执行动作: {actions}  (初始: {init_actions})")
+                pi0.env.step(actions)
+                print(f"执行动作: {actions}  (初始: {init_actions})")
 
     except KeyboardInterrupt:
         logging.info("\n检测到键盘中断...")
@@ -385,10 +313,8 @@ def main(args: Args):
         pi0.close()
 
 if __name__ == '__main__':
-    # logging.basicConfig(
-    #     level=logging.DEBUG,
-    #     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
-    # )
+    logging.basicConfig(
+        level=logging.DEBUG,
+        format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    )
     main(tyro.cli(Args))
-
-

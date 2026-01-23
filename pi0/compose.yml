@@ -14,8 +14,10 @@ services:
 
     volumes:
       - $PWD:/app
-      - /data2/axgu/code/openpi:/app/openpi/checkpoints
+      - /data2/axgu/code/openpi/checkpoints:/app/openpi/checkpoints
       - /data2/axgu/code/gello_software_bp:/app/gello_software_bp
+      - /data/blzou/project/RoboTwin/third_party/:/app/pi0/third_party
+      - /data2/axgu/code/openpi/training/config.h:/app/pi0/openpi/training/config.h
       # 定义checkpoints的挂载路径
     environment:
       - IS_DOCKER=true

@@ -2,3 +2,6 @@
 *.tar.gz
 *.tgz
 *.mp4
+*.log
+**/build/**
+*.avi
